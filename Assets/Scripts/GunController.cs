@@ -1,99 +1,91 @@
 using UnityEngine;
 
 /// <summary>
-/// Handles gun shooting via OVR right-hand trigger.
-/// AIM MODE: Uses Camera (head) forward direction — look at the zombie to shoot it.
-/// TRIGGER: Uses RawAxis1D.RIndexTrigger (unambiguous right hand trigger).
-/// Attach to the Gun GameObject under RightHandAnchor of OVRCameraRig.
+/// Gun shooting controller.
+/// Attach this script to a GameObject that is a CHILD of RightControllerAnchor.
+/// 
+/// OVRCameraRig hierarchy:
+///   OVRCameraRig
+///   └── TrackingSpace
+///       └── RightControllerAnchor   <-- parent your Gun here (NOT RightHandAnchor)
+///           └── Gun                 <-- this script lives here
+/// 
+/// Trigger detection uses OVRInput.RawButton.RHandTrigger + RIndexTrigger.
+/// Aiming uses Camera (head) forward — look at zombie and pull trigger.
 /// </summary>
 public class GunController : MonoBehaviour
 {
     [Header("Gun Settings")]
-    public float fireRate = 0.2f;       // Seconds between shots
+    public float fireRate = 0.25f;
     public int damage = 1;
-    public float maxRange = 100f;
-    public LayerMask hitLayers = ~0;    // Everything by default
+    public float maxRange = 150f;
 
     [Header("Aim Mode")]
-    [Tooltip("TRUE = shoot where you LOOK (camera/head forward). FALSE = shoot where gun barrel points.")]
+    [Tooltip("Shoot where you LOOK. Recommended for a stationary VR showcase.")]
     public bool aimWithHead = true;
 
     [Header("References")]
-    public Transform muzzlePoint;       // Visual origin of tracer/flash
-    public GameObject muzzleFlashEffect; // Light to enable briefly
-    public LineRenderer tracerLine;      // Optional: visual tracer
-
-    [Header("Audio")]
-    public AudioClip gunshotClip;
-    private AudioSource audioSource;
+    public Transform muzzlePoint;
+    public GameObject muzzleFlashEffect;
+    public LineRenderer tracerLine;
 
     [Header("Haptics")]
-    public float hapticAmplitude = 0.4f;
+    public float hapticAmplitude = 0.5f;
     public float hapticDuration = 0.1f;
 
     // Runtime
-    private float lastFireTime = 0f;
-    private float muzzleFlashTimer = 0f;
-    private float tracerTimer = 0f;
+    private float lastFireTime;
+    private float muzzleFlashTimer;
+    private float tracerTimer;
     private Camera vrCamera;
-    private static readonly float MUZZLE_FLASH_DURATION = 0.05f;
-    private static readonly float TRACER_DURATION = 0.08f;
+    private AudioSource audioSource;
 
-    private void Awake()
+    private void Start()
     {
+        vrCamera = Camera.main;
+
         audioSource = GetComponent<AudioSource>();
         if (audioSource == null)
             audioSource = gameObject.AddComponent<AudioSource>();
 
-        audioSource.playOnAwake = false;
-        audioSource.spatialBlend = 1f;
-
-        // Setup tracer line
-        if (tracerLine != null)
-        {
-            tracerLine.enabled = false;
-            tracerLine.startWidth = 0.01f;
-            tracerLine.endWidth = 0.005f;
-        }
-
-        // Disable muzzle flash initially
-        if (muzzleFlashEffect != null)
-            muzzleFlashEffect.SetActive(false);
-    }
-
-    private void Start()
-    {
-        // Cache the VR camera
-        vrCamera = Camera.main;
-
-        // Auto-find muzzle point if not assigned
+        // Auto-find MuzzlePoint child
         if (muzzlePoint == null)
         {
             Transform mp = transform.Find("MuzzlePoint");
-            muzzlePoint = mp != null ? mp : transform;
+            muzzlePoint = (mp != null) ? mp : transform;
         }
+
+        if (muzzleFlashEffect != null)
+            muzzleFlashEffect.SetActive(false);
+
+        if (tracerLine != null)
+            tracerLine.enabled = false;
+
+        Debug.Log("[Gun] GunController initialized. Parent: " + transform.parent?.name);
     }
 
     private void Update()
     {
-        // Allow shooting even if GameManager isn't ready yet, so you can test
-        bool gameActive = GameManager.Instance == null || GameManager.Instance.isGameActive;
-        if (!gameActive) return;
+        // ── TRIGGER DETECTION ──
+        // We check THREE different ways to catch the trigger no matter what
+        // OVR controller handedness / profile is active.
 
-        // ── TRIGGER INPUT ──
-        // RawAxis1D.RIndexTrigger = unambiguously the RIGHT index finger trigger
-        // Keyboard fallback: hold Space bar for testing in editor without headset
-        bool triggerHeld = OVRInput.Get(OVRInput.RawAxis1D.RIndexTrigger) > 0.5f
-                        || Input.GetKey(KeyCode.Space)
-                        || Input.GetMouseButton(0);   // Left click also works in editor
+        bool ovrTrigger =
+            OVRInput.GetDown(OVRInput.RawButton.RIndexTrigger) ||   // right index trigger press
+            OVRInput.Get(OVRInput.RawAxis1D.RIndexTrigger) > 0.7f;  // right index trigger held
 
-        if (triggerHeld && Time.time - lastFireTime >= fireRate)
+        // Editor / keyboard fallback (for testing without headset)
+        bool editorTrigger = Input.GetMouseButton(0) || Input.GetKey(KeyCode.Space);
+
+        bool wantFire = (ovrTrigger || editorTrigger) && (Time.time - lastFireTime >= fireRate);
+
+        if (wantFire)
         {
             Fire();
             lastFireTime = Time.time;
         }
 
-        // Handle muzzle flash timer
+        // Muzzle flash off timer
         if (muzzleFlashTimer > 0f)
         {
             muzzleFlashTimer -= Time.deltaTime;
@@ -101,7 +93,7 @@ public class GunController : MonoBehaviour
                 muzzleFlashEffect.SetActive(false);
         }
 
-        // Handle tracer timer
+        // Tracer off timer
         if (tracerTimer > 0f)
         {
             tracerTimer -= Time.deltaTime;
@@ -112,22 +104,18 @@ public class GunController : MonoBehaviour
 
     private void Fire()
     {
-        // ── DIRECTION ──
-        // If aimWithHead: shoot from camera center toward wherever you're looking.
-        // This is the most reliable for a VR showcase — look at a zombie, pull trigger, it dies.
-        Vector3 origin;
-        Vector3 direction;
+        // ── DETERMINE RAY ORIGIN & DIRECTION ──
+        Vector3 origin, direction;
 
         if (aimWithHead && vrCamera != null)
         {
-            // Shoot from camera position in camera forward direction (look-to-aim)
-            origin = vrCamera.transform.position;
+            // Shoot from camera center in look direction (most reliable for VR showcase)
+            origin    = vrCamera.transform.position;
             direction = vrCamera.transform.forward;
         }
         else
         {
-            // Shoot from muzzle point along barrel forward
-            origin = muzzlePoint.position;
+            origin    = muzzlePoint.position;
             direction = muzzlePoint.forward;
         }
 
@@ -135,55 +123,51 @@ public class GunController : MonoBehaviour
         if (muzzleFlashEffect != null)
         {
             muzzleFlashEffect.SetActive(true);
-            muzzleFlashTimer = MUZZLE_FLASH_DURATION;
+            muzzleFlashTimer = 0.06f;
         }
-
-        // ── SOUND ──
-        if (gunshotClip != null)
-            audioSource.PlayOneShot(gunshotClip);
-        else if (AudioManager.Instance != null)
-            AudioManager.Instance.PlayGunshot(muzzlePoint.position);
 
         // ── HAPTICS ──
         OVRInput.SetControllerVibration(hapticAmplitude, hapticAmplitude, OVRInput.Controller.RTouch);
         Invoke(nameof(StopHaptics), hapticDuration);
 
+        // ── SOUND ──
+        if (AudioManager.Instance != null)
+            AudioManager.Instance.PlayGunshot(muzzlePoint.position);
+
         // ── RAYCAST ──
         Vector3 hitPoint = origin + direction * maxRange;
 
-        if (Physics.Raycast(origin, direction, out RaycastHit hit, maxRange, hitLayers))
+        // Ignore the gun itself by excluding its layer — cast against everything else
+        if (Physics.Raycast(origin, direction, out RaycastHit hit, maxRange))
         {
             hitPoint = hit.point;
 
-            // Walk up the hierarchy to find ZombieController on hit object or any parent
             ZombieController zombie = hit.collider.GetComponentInParent<ZombieController>();
-
             if (zombie != null)
             {
                 zombie.TakeDamage(damage);
-                Debug.Log($"[Gun] ✓ Hit ZOMBIE '{zombie.name}' at {hit.distance:F1}m | HP left: {zombie.currentHealth - damage}");
+                Debug.Log($"[Gun] HIT zombie '{zombie.name}' at {hit.distance:F1}m");
             }
             else
             {
-                Debug.Log($"[Gun] Hit '{hit.collider.name}' (tag: {hit.collider.tag}) — NOT a zombie");
+                Debug.Log($"[Gun] Hit '{hit.collider.name}' — not a zombie");
             }
         }
         else
         {
-            Debug.Log($"[Gun] Fired — no hit (direction: {direction})");
+            Debug.Log("[Gun] Shot fired — no collision hit");
         }
 
-        // ── TRACER LINE ──
+        // ── TRACER ──
         if (tracerLine != null)
         {
-            tracerLine.enabled = true;
-            tracerLine.SetPosition(0, muzzlePoint.position); // Always start from barrel visually
+            tracerLine.SetPosition(0, muzzlePoint.position);
             tracerLine.SetPosition(1, hitPoint);
-            tracerTimer = TRACER_DURATION;
+            tracerLine.enabled = true;
+            tracerTimer = 0.08f;
         }
 
-        // Scene view debug ray (visible in Unity editor Scene panel)
-        Debug.DrawRay(origin, direction * maxRange, Color.red, 0.15f);
+        Debug.DrawRay(origin, direction * maxRange, Color.red, 0.2f);
     }
 
     private void StopHaptics()
