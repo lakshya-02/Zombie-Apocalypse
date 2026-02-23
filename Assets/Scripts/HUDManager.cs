@@ -33,6 +33,7 @@ public class HUDManager : MonoBehaviour
 
     private Transform playerCamera;
     private Canvas hudCanvas;
+    private PlayerHealth cachedPlayerHealth;
 
     private void Start()
     {
@@ -64,7 +65,9 @@ public class HUDManager : MonoBehaviour
         // Update health bar
         if (healthBarFill != null)
         {
-            PlayerHealth ph = FindFirstObjectByType<PlayerHealth>();
+            if (cachedPlayerHealth == null)
+                cachedPlayerHealth = FindFirstObjectByType<PlayerHealth>();
+            PlayerHealth ph = cachedPlayerHealth;
             if (ph != null)
             {
                 float percent = ph.HealthPercent;

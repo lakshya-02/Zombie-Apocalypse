@@ -105,7 +105,7 @@ public class ZombieController : MonoBehaviour
 
     private void Update()
     {
-        if (isDead || !GameManager.Instance.isGameActive) return;
+        if (isDead || GameManager.Instance == null || !GameManager.Instance.isGameActive) return;
 
         // Update destination periodically (not every frame for performance)
         destinationTimer -= Time.deltaTime;
@@ -214,15 +214,18 @@ public class ZombieController : MonoBehaviour
         Destroy(gameObject);
     }
 
+    private static PlayerHealth cachedPlayerHealth;
+
     private void AttackPlayer()
     {
         if (isDead) return;
 
-        // Damage the player
-        var playerHealth = FindFirstObjectByType<PlayerHealth>();
-        if (playerHealth != null)
+        // Damage the player (cache the reference for performance)
+        if (cachedPlayerHealth == null)
+            cachedPlayerHealth = FindFirstObjectByType<PlayerHealth>();
+        if (cachedPlayerHealth != null)
         {
-            playerHealth.TakeDamage(damageToPlayer);
+            cachedPlayerHealth.TakeDamage(damageToPlayer);
         }
 
         // Zombie dies after attacking (suicide attack)

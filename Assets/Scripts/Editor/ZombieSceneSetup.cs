@@ -4,6 +4,7 @@ using UnityEditor;
 using UnityEngine.AI;
 using UnityEngine.UI;
 using TMPro;
+using Unity.AI.Navigation;
 
 /// <summary>
 /// Editor tool to auto-build the Zombie VR arena scene.
@@ -134,12 +135,8 @@ public class ZombieSceneSetup : EditorWindow
         ground.GetComponent<Renderer>().material = groundMat;
         ground.isStatic = true;
 
-        // Add NavMeshSurface
+        // Add NavMeshSurface for zombie pathfinding
         var navSurface = ground.AddComponent<NavMeshSurface>();
-        navSurface.collectObjects = CollectObjects.Children;
-
-        // Mark it to collect all in children scope — we'll fix this
-        // Actually set it to collect "All" so it picks up the ground plane
         navSurface.collectObjects = CollectObjects.All;
 
         // Walls

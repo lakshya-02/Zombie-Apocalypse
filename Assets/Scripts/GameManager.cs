@@ -45,19 +45,18 @@ public class GameManager : MonoBehaviour
 
     private void Update()
     {
-        if (!isGameActive) return;
-
-        survivalTime += Time.deltaTime;
-
-        // Check for restart input when game is over
-        if (gameOverCanvas != null && gameOverCanvas.activeSelf)
+        // Check for restart input when game is over (must be BEFORE the early return)
+        if (!isGameActive)
         {
             if (OVRInput.GetDown(OVRInput.RawButton.RIndexTrigger) ||
                 OVRInput.GetDown(OVRInput.RawButton.LIndexTrigger))
             {
                 RestartGame();
             }
+            return;
         }
+
+        survivalTime += Time.deltaTime;
     }
 
     public void StartGame()

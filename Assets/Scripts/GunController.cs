@@ -71,8 +71,8 @@ public class GunController : MonoBehaviour
         // Don't shoot if game is not active
         if (GameManager.Instance == null || !GameManager.Instance.isGameActive) return;
 
-        // Check right index trigger
-        bool triggerPressed = OVRInput.Get(OVRInput.Axis1D.SecondaryIndexTrigger) > 0.5f;
+        // Check right index trigger (PrimaryIndexTrigger = right hand in OVR)
+        bool triggerPressed = OVRInput.Get(OVRInput.Axis1D.PrimaryIndexTrigger) > 0.5f;
 
         if (triggerPressed && Time.time - lastFireTime >= fireRate)
         {
